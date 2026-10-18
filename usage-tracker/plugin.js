@@ -88,10 +88,12 @@ function useSnapshot() {
 }
 
 // ---------------------------------------------------------------- formatting
+// Color by how much is LEFT: 10% or less left is red, 10 to 40% left is orange, more is green.
 function pctColor(p) {
-  if (p >= 85) return 'var(--ui-red)'
-  if (p >= 60) return 'var(--ui-yellow)'
-  return 'var(--ui-accent)'
+  const left = 100 - (Number(p) || 0)
+  if (left <= 10) return 'var(--ui-red, #e75e78)'
+  if (left <= 40) return 'var(--ui-orange, #db704b)'
+  return 'var(--ui-green, #55a583)'
 }
 
 function fmtPct(p) {
@@ -167,7 +169,7 @@ function WindowRow({ w }) {
   })
 }
 
-function Sparkline({ points }) {
+function Sparkline({ points, pct }) {
   if (!points || points.length < 2) return null
   const W = 240
   const H = 32
@@ -188,7 +190,7 @@ function Sparkline({ points }) {
         children: jsx('polyline', {
           points: xy.join(' '),
           fill: 'none',
-          stroke: 'var(--ui-accent)',
+          stroke: pctColor(pct ?? points[points.length - 1][1]),
           strokeWidth: 1.5,
           vectorEffect: 'non-scaling-stroke'
         })
@@ -226,7 +228,7 @@ function AccountCard({ acct, series, hermes7d }) {
       windows.length
         ? jsx('div', { className: 'flex flex-col gap-2.5', children: windows.map(w => jsx(WindowRow, { w }, w.label)) })
         : null,
-      jsx(Sparkline, { points: weekly }),
+      jsx(Sparkline, { points: weekly, pct: (windows.find(w => w.label === 'Weekly') || windows[0])?.used_percent }),
       acct.note &&
         jsx('div', {
           className: 'text-xs',
@@ -421,8 +423,25 @@ function UsageChip() {
   const items = (data?.accounts || [])
     .map(a => ({ a, w: topWindow(a) }))
     .filter(x => x.w && x.w.used_percent >= 1)
-  const label = error && !data ? 'Usage ?' : items.length ? items.map(({ a, w }) => `${a.service.split(' ')[0]} ${fmtPct(w.used_percent)}`).join(' · ') : 'Usage'
-  const worst = items.reduce((m, x) => Math.max(m, x.w.used_percent), 0)
+  // Each account's % gets its own color (same rule as the page); names stay neutral.
+  const label =
+    error && !data
+      ? 'Usage ?'
+      : items.length
+        ? items.flatMap(({ a, w }, i) => [
+            i ? jsx('span', { className: 'text-(--ui-text-quaternary)', children: '·' }, `sep${i}`) : null,
+            jsxs(
+              'span',
+              {
+                children: [
+                  `${a.service.split(' ')[0]} `,
+                  jsx('span', { style: { color: pctColor(w.used_percent) }, children: fmtPct(w.used_percent) })
+                ]
+              },
+              a.id
+            )
+          ])
+        : 'Usage'
   const tip = (data?.accounts || [])
     .map(a => {
       const w = topWindow(a)
@@ -437,9 +456,8 @@ function UsageChip() {
         'inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] tabular-nums transition-colors',
         'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
       ),
-      style: worst >= 85 ? { color: 'var(--ui-red)' } : worst >= 60 ? { color: 'var(--ui-yellow)' } : undefined,
       onClick: () => host.navigate(PATH),
-      children: [jsx(Codicon, { name: 'graph' }), label]
+      children: [jsx(Codicon, { name: 'graph' }), ...(Array.isArray(label) ? label : [label])]
     })
   })
 }
